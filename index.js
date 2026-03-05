@@ -565,6 +565,42 @@ function createMcpServer() {
             required: ["text"],
           },
         },
+        {
+          name: "base64",
+          description: "Encode text to Base64 or decode Base64 to text. Use mode='encode' (default) or mode='decode'.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              input: { type: "string", description: "Text to encode, or Base64 string to decode" },
+              mode: { type: "string", description: "'encode' (default) or 'decode'", default: "encode" },
+            },
+            required: ["input"],
+          },
+        },
+        {
+          name: "http_headers",
+          description: "Fetch HTTP response headers from a URL without downloading the body. Shows status code, content-type, server, caching headers, etc.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              url: { type: "string", description: "URL to fetch headers from" },
+            },
+            required: ["url"],
+          },
+        },
+        {
+          name: "regex_test",
+          description: "Test a regex pattern against text. Returns all matches with indices, capture groups, and match count.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              pattern: { type: "string", description: "Regex pattern (without delimiters)" },
+              text: { type: "string", description: "Text to test against" },
+              flags: { type: "string", description: "Regex flags (default: 'g')", default: "g" },
+            },
+            required: ["pattern", "text"],
+          },
+        },
       ],
     };
   });
@@ -635,6 +671,15 @@ function createMcpServer() {
           break;
         case "hash_text":
           result = hashText(args.text, args.algorithm || "sha256");
+          break;
+        case "base64":
+          result = base64Tool(args.input, args.mode || "encode");
+          break;
+        case "http_headers":
+          result = await httpHeaders(args.url);
+          break;
+        case "regex_test":
+          result = regexTest(args.pattern, args.text, args.flags || "g");
           break;
         default:
           return {
@@ -790,6 +835,49 @@ function hashText(text, algorithm = "sha256") {
   return { algorithm, hash: crypto.createHash(algorithm).update(text).digest("hex"), length: text.length };
 }
 
+
+// --- base64 ---
+function base64Tool(input, mode = "encode") {
+  try {
+    if (mode === "decode") {
+      const decoded = Buffer.from(input, "base64").toString("utf-8");
+      return { mode: "decode", input: input.slice(0, 100), output: decoded, length: decoded.length };
+    }
+    const encoded = Buffer.from(input).toString("base64");
+    return { mode: "encode", input: input.slice(0, 100), output: encoded, length: encoded.length };
+  } catch (e) { return { error: e.message }; }
+}
+
+// --- http_headers ---
+async function httpHeaders(url) {
+  try {
+    const mod = url.startsWith("https") ? require("https") : require("http");
+    const headers = await new Promise((resolve, reject) => {
+      const req = mod.get(url, { headers: { "User-Agent": "KaelMCP/1.0" }, timeout: 10000 }, (res) => {
+        resolve({ status: res.statusCode, headers: res.headers });
+        res.destroy();
+      });
+      req.on("error", reject);
+      req.on("timeout", () => { req.destroy(); reject(new Error("timeout")); });
+    });
+    return { url, ...headers };
+  } catch (e) { return { error: e.message, url }; }
+}
+
+// --- regex_test ---
+function regexTest(pattern, text, flags = "g") {
+  try {
+    const re = new RegExp(pattern, flags);
+    const matches = [...text.matchAll(re)].map(m => ({
+      match: m[0],
+      index: m.index,
+      groups: m.groups || null,
+      captures: m.slice(1)
+    }));
+    return { pattern, flags, matches, count: matches.length, test: re.test(text) };
+  } catch (e) { return { error: e.message }; }
+}
+
 // --- Express + SSE Transport ---
 const app = express();
 
@@ -807,8 +895,8 @@ app.get("/health", (req, res) => {
   res.json({
     status: "ok",
     service: "Kael MCP Server ⚡",
-    version: "1.1.0",
-    tools: 13,
+    version: "1.2.0",
+    tools: 16,
     transport: "sse",
     protocol: "MCP 1.0",
   });
@@ -834,6 +922,9 @@ app.get("/", (req, res) => {
       "text_diff — Compare two texts with unified diff output",
       "json_query — Query JSON with dot-notation paths",
       "hash_text — Hash text with MD5/SHA1/SHA256/SHA512",
+      "base64 — Encode/decode Base64",
+      "http_headers — Fetch HTTP headers without downloading body",
+      "regex_test — Test regex patterns with full match details",
     ],
     connect: {
       sse: `https://www.kael.ink/mcp/sse`,
