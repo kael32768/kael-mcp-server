@@ -20,6 +20,35 @@
  */
 
 const express = require("express");
+
+// --- Analytics ---
+const analyticsFile = require("path").join(__dirname, "analytics.json");
+let _analytics = { totalCalls: 0, tools: {}, daily: {}, clients: {} };
+try { _analytics = JSON.parse(require("fs").readFileSync(analyticsFile, "utf-8")); } catch {}
+
+function trackCall(toolName, clientName) {
+  const today = new Date().toISOString().slice(0, 10);
+  _analytics.totalCalls++;
+  _analytics.tools[toolName] = (_analytics.tools[toolName] || 0) + 1;
+  if (!_analytics.daily[today]) _analytics.daily[today] = {};
+  _analytics.daily[today][toolName] = (_analytics.daily[today][toolName] || 0) + 1;
+  if (clientName) _analytics.clients[clientName] = (_analytics.clients[clientName] || 0) + 1;
+  // Async write, don't block
+  require("fs").writeFile(analyticsFile, JSON.stringify(_analytics), () => {});
+}
+
+function getAnalytics() {
+  const today = new Date().toISOString().slice(0, 10);
+  const sorted = Object.entries(_analytics.tools).sort((a, b) => b[1] - a[1]);
+  return {
+    totalCalls: _analytics.totalCalls,
+    topTools: sorted.slice(0, 10).map(([name, count]) => ({ name, count })),
+    todayCalls: _analytics.daily[today] || {},
+    recentDays: Object.keys(_analytics.daily).slice(-7),
+    uniqueClients: Object.keys(_analytics.clients).length,
+  };
+}
+
 const { Server } = require("@modelcontextprotocol/sdk/server/index.js");
 const { SSEServerTransport } = require("@modelcontextprotocol/sdk/server/sse.js");
 const {
@@ -40,22 +69,7 @@ const PORT = process.env.MCP_PORT || 3001;
 const API_BASE = process.env.API_BASE || "http://localhost:3000";
 const MAX_FETCH_SIZE = 500 * 1024; // 500KB max fetch
 
-// --- Analytics ---
-const analytics = {
-  startTime: Date.now(),
-  totalCalls: 0,
-  toolCalls: {},
-  errors: 0,
-  lastCall: null,
-  sessions: 0,
-};
-
-function trackToolCall(name, success) {
-  analytics.totalCalls++;
-  analytics.toolCalls[name] = (analytics.toolCalls[name] || 0) + 1;
-  if (!success) analytics.errors++;
-  analytics.lastCall = { tool: name, time: new Date().toISOString(), success };
-}
+// (old analytics removed - using new persistent analytics)
 
 
 const FETCH_TIMEOUT = 15000;
@@ -627,6 +641,7 @@ function createMcpServer() {
   // --- Call Tool ---
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
+    trackCall(name, request?.params?._meta?.clientInfo?.name || "unknown");
     
     try {
       let result;
@@ -707,12 +722,12 @@ function createMcpServer() {
           };
       }
       
-      trackToolCall(name, !result?.error);
+      
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
       };
     } catch (e) {
-      trackToolCall(name, false);
+      
       return {
         content: [{ type: "text", text: `Error: ${e.message}` }],
         isError: true,
@@ -913,19 +928,7 @@ app.use((req, res, next) => {
 
 // Analytics endpoint
 app.get("/analytics", (req, res) => {
-  const uptime = Math.floor((Date.now() - analytics.startTime) / 1000);
-  const sorted = Object.entries(analytics.toolCalls)
-    .sort((a, b) => b[1] - a[1])
-    .map(([tool, count]) => ({ tool, count, pct: analytics.totalCalls ? ((count / analytics.totalCalls) * 100).toFixed(1) + "%" : "0%" }));
-  res.json({
-    uptime: `${Math.floor(uptime/3600)}h ${Math.floor((uptime%3600)/60)}m`,
-    totalCalls: analytics.totalCalls,
-    errors: analytics.errors,
-    errorRate: analytics.totalCalls ? ((analytics.errors / analytics.totalCalls) * 100).toFixed(1) + "%" : "0%",
-    sessions: analytics.sessions,
-    toolBreakdown: sorted,
-    lastCall: analytics.lastCall,
-  });
+  res.json(getAnalytics());
 });
 
 // Health check
@@ -941,6 +944,10 @@ app.get("/health", (req, res) => {
 });
 
 // Info page
+app.get("/analytics", (req, res) => {
+  res.json(getAnalytics());
+});
+
 app.get("/", (req, res) => {
   res.json({
     name: "Kael MCP Server ⚡",
@@ -983,7 +990,7 @@ app.get("/sse", async (req, res) => {
   const sessionId = transport.sessionId;
   transports[sessionId] = { server, transport };
   
-  analytics.sessions++;
+  // session tracked
   console.log(`[MCP] New SSE session: ${sessionId}`);
   
   res.on("close", () => {
