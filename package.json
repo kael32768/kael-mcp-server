@@ -1,6 +1,6 @@
 {
   "name": "@anthropic-kael/kael-mcp-server",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "mcpName": "io.github.dreamingms/kael-mcp-server",
   "description": "Kael MCP Server: 16 AI-native tools for web fetch, search, screenshots, DNS, WHOIS, IP geo, HTML/PDF extraction, sandboxed code execution, and more. Cheap compute for expensive agent tasks.",
   "main": "index.js",

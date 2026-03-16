@@ -428,91 +428,7 @@ function createMcpServer() {
     }
   );
 
-  
-// --- SSL Certificate Check ---
-async function sslCheck(hostname) {
-  const tls = require('tls');
-  return new Promise((resolve, reject) => {
-    const socket = tls.connect(443, hostname, { servername: hostname, timeout: 10000 }, () => {
-      const cert = socket.getPeerCertificate();
-      socket.end();
-      if (!cert || !cert.subject) return reject(new Error('No certificate'));
-      resolve({
-        hostname,
-        subject: cert.subject,
-        issuer: cert.issuer,
-        valid_from: cert.valid_from,
-        valid_to: cert.valid_to,
-        serial: cert.serialNumber,
-        fingerprint: cert.fingerprint256,
-        sans: cert.subjectaltname ? cert.subjectaltname.split(', ').map(s => s.replace('DNS:','')) : [],
-        days_remaining: Math.floor((new Date(cert.valid_to) - new Date()) / 86400000),
-        is_valid: socket.authorized,
-        protocol: socket.getProtocol(),
-      });
-    });
-    socket.on('error', reject);
-    socket.on('timeout', () => { socket.destroy(); reject(new Error('Timeout')); });
-  });
-}
-
-// --- Email Validate ---
-async function emailValidate(email) {
-  const dns = require('dns').promises;
-  const emailRegex = /^[a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
-  const result = { email, format_valid: emailRegex.test(email) };
-  if (!result.format_valid) return { ...result, mx_valid: false, mx_records: [] };
-  const domain = email.split('@')[1];
-  try {
-    const mx = await dns.resolveMx(domain);
-    result.domain = domain;
-    result.mx_valid = mx.length > 0;
-    result.mx_records = mx.sort((a,b) => a.priority - b.priority).map(r => ({ priority: r.priority, exchange: r.exchange }));
-  } catch(e) {
-    result.mx_valid = false;
-    result.mx_records = [];
-    result.mx_error = e.code || e.message;
-  }
-  return result;
-}
-
-// --- Sitemap Parse ---
-async function sitemapParse(url) {
-  const resp = await fetch(url, { headers: { 'User-Agent': 'Kael-MCP/1.0' }, signal: AbortSignal.timeout(15000) });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  const xml = await resp.text();
-  const urls = [];
-  const isSitemapIndex = xml.includes('<sitemapindex');
-  const tagName = isSitemapIndex ? 'sitemap' : 'url';
-  const regex = new RegExp(`<${tagName}>[\\s\\S]*?</${tagName}>`, 'g');
-  let match;
-  while ((match = regex.exec(xml)) !== null && urls.length < 500) {
-    const entry = {};
-    const locMatch = match[0].match(/<loc>\s*([^<]+)\s*<\/loc>/);
-    if (locMatch) entry.loc = locMatch[1].trim();
-    const lastmodMatch = match[0].match(/<lastmod>\s*([^<]+)\s*<\/lastmod>/);
-    if (lastmodMatch) entry.lastmod = lastmodMatch[1].trim();
-    const priorityMatch = match[0].match(/<priority>\s*([^<]+)\s*<\/priority>/);
-    if (priorityMatch) entry.priority = parseFloat(priorityMatch[1]);
-    if (entry.loc) urls.push(entry);
-  }
-  return { url, type: isSitemapIndex ? 'sitemapindex' : 'urlset', count: urls.length, urls };
-}
-
-// --- Currency Convert ---
-async function currencyConvert(amount, from, to) {
-  from = from.toUpperCase();
-  to = to.toUpperCase();
-  const resp = await fetch(`https://open.er-api.com/v6/latest/${from}`, { signal: AbortSignal.timeout(10000) });
-  if (!resp.ok) throw new Error(`Exchange rate API error: ${resp.status}`);
-  const data = await resp.json();
-  if (data.result !== 'success') throw new Error(data['error-type'] || 'API error');
-  const rate = data.rates[to];
-  if (!rate) throw new Error(`Unknown currency: ${to}`);
-  return { amount, from, to, rate, converted: Math.round(amount * rate * 100) / 100, timestamp: data.time_last_update_utc };
-}
-
-// --- List Tools ---
+  // --- List Tools ---
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     return {
       tools: [
@@ -719,52 +635,6 @@ async function currencyConvert(amount, from, to) {
             required: ["pattern", "text"],
           },
         },
-        {
-          name: "ssl_check",
-          description: "Check SSL/TLS certificate of a domain. Returns issuer, validity dates, days remaining, SANs, fingerprint, and protocol version.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              hostname: { type: "string", description: "Domain name to check (e.g. 'example.com')" },
-            },
-            required: ["hostname"],
-          },
-        },
-        {
-          name: "email_validate",
-          description: "Validate an email address format and check if the domain has valid MX records. Does NOT send email or verify mailbox existence.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              email: { type: "string", description: "Email address to validate" },
-            },
-            required: ["email"],
-          },
-        },
-        {
-          name: "sitemap_parse",
-          description: "Fetch and parse an XML sitemap or sitemap index. Returns all URLs with lastmod and priority. Limit: 500 entries.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              url: { type: "string", description: "URL of the sitemap.xml" },
-            },
-            required: ["url"],
-          },
-        },
-        {
-          name: "currency_convert",
-          description: "Convert between currencies using live exchange rates. Supports 150+ currencies (USD, EUR, CNY, JPY, GBP, etc). Rates updated daily.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              amount: { type: "number", description: "Amount to convert" },
-              from: { type: "string", description: "Source currency code (e.g. 'USD')" },
-              to: { type: "string", description: "Target currency code (e.g. 'CNY')" },
-            },
-            required: ["amount", "from", "to"],
-          },
-        },
       ],
     };
   });
@@ -845,18 +715,6 @@ async function currencyConvert(amount, from, to) {
           break;
         case "regex_test":
           result = regexTest(args.pattern, args.text, args.flags || "g");
-          break;
-        case "ssl_check":
-          result = await sslCheck(args.hostname);
-          break;
-        case "email_validate":
-          result = await emailValidate(args.email);
-          break;
-        case "sitemap_parse":
-          result = await sitemapParse(args.url);
-          break;
-        case "currency_convert":
-          result = await currencyConvert(args.amount, args.from, args.to);
           break;
         default:
           return {
@@ -1079,8 +937,8 @@ app.get("/health", (req, res) => {
   res.json({
     status: "ok",
     service: "Kael MCP Server ⚡",
-    version: "1.5.0",
-    tools: 20,
+    version: "1.2.0",
+    tools: 16,
     transport: ["sse", "streamable-http"],
     protocol: "MCP 1.0",
   });

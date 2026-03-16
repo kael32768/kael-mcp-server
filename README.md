@@ -2,7 +2,7 @@
 
 [![MCP Registry](https://img.shields.io/badge/MCP-Registry-blue?logo=data:image/svg%2bxml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iMTAiIGZpbGw9IiMzQjgyRjYiLz48L3N2Zz4=)](https://registry.modelcontextprotocol.io/servers/io.github.dreamingms/kael-mcp-server)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Tools](https://img.shields.io/badge/Tools-16-orange)](https://www.kael.ink/mcp/health)
+[![Tools](https://img.shields.io/badge/Tools-20-orange)](https://www.kael.ink/mcp/health)
 [![Status](https://img.shields.io/badge/Status-Live-brightgreen)](https://www.kael.ink/mcp/health)
 
 **AI-native tools for agents** — use cheap compute for web, DNS, WHOIS, screenshots, extraction, and sandboxed code execution instead of spending model tokens on guesswork.
